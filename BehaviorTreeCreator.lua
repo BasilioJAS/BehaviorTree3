@@ -66,7 +66,12 @@ local function resolveInstanceFromPath(path)
 		if not current then
 			break
 		end
-		current = current:FindFirstChild(segment)
+		local nextChild = current:FindFirstChild(segment)
+		if not nextChild then
+			warn(string.format("resolveInstanceFromPath could not find '%s' while traversing '%s'", segment, path))
+			return nil
+		end
+		current = nextChild
 	end
 	return current
 end
@@ -149,6 +154,8 @@ local function getTreeDefinitionsFromModule(treeFolder)
 		end)
 		if success then
 			data = decoded
+		else
+			warn("Failed to decode JSON tree data from module ", treeFolder, " error: ", decoded)
 		end
 	end
 
@@ -261,7 +268,7 @@ function TreeCreator:_buildNode(folder, nodeLookup)
 	local isInstance = typeof(folder) == "Instance"
 	local nodeType = isInstance and folder.Type.Value or folder.Type or folder.type
 	local weight = isInstance and (folder:FindFirstChild("Weight") and folder.Weight.Value or 1) or folder.Weight or folder.weight or 1
-	assert(nodeType, "could't build tree; node missing type")
+	assert(nodeType, "couldn't build tree; node missing type")
 
 	local orderedChildren = {}
 	if isInstance then
@@ -295,7 +302,7 @@ function TreeCreator:_buildNode(folder, nodeLookup)
 				childFolder = nodeLookup[childFolder]
 			end
 		end
-		assert(childFolder, "could't build tree; child node missing")
+		assert(childFolder, "couldn't build tree; child node missing")
 		orderedChildren[i] = self:_buildNode(childFolder, nodeLookup)
 	end
 
@@ -320,19 +327,19 @@ function TreeCreator:_buildNode(folder, nodeLookup)
 
 	if nodeType == "Task" then
 		local sourcetask = self:_getSourceTask(folder, parameters)
-		assert(sourcetask, "could't build tree; task node had no module")
+		assert(sourcetask, "couldn't build tree; task node had no module")
 		parameters.start = sourcetask.start
 		parameters.run = sourcetask.run
 		parameters.finish = sourcetask.finish
 	elseif nodeType == "External Task" then
 		local sourcetask = self:_getExternalSourceTask(folder, parameters)
-		assert(sourcetask, "could't build tree; external task node had no source")
+		assert(sourcetask, "couldn't build tree; external task node had no source")
 		parameters.start = sourcetask.start
 		parameters.run = sourcetask.run
 		parameters.finish = sourcetask.finish
 	elseif nodeType == "Tree" then
 		local tree = self:_getTreeFromId(parameters.treeid)
-		assert(tree, string.format("could't build tree; couldn't get tree object for tree node with TreeID:  %s!",tostring(parameters.treeid)))
+		assert(tree, string.format("couldn't build tree; couldn't get tree object for tree node with TreeID:  %s!",tostring(parameters.treeid)))
 		parameters.tree = tree
 	end
 
@@ -412,7 +419,7 @@ function TreeCreator:_getTree(treeFolder, treeId)
 	end
 	return self:_createTree(treeFolder, treeId)
 end
--- For tree ndoes to get a tree from
+-- For tree nodes to get a tree from
 function TreeCreator:_getTreeFromId(treeId)
 	local tree = TreeIDs[treeId]
 	if not tree then
