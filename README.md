@@ -20,6 +20,10 @@ V5: (May 2022)
 
 * Added Metaprox's External Task fork, to allow for rojo support
 * Fixed critical issue in behavior trees where multiple actors wouldn't properly keep track of their running states
+* Trees can now be stored in a single `ModuleScript` that returns a JSON string or table, allowing Rojo/git friendly behavior tree definitions without nested Value objects
+
+### JSON tree storage
+Point `BehaviorTreeCreator:Create` to a `ModuleScript` that returns a JSON string or Lua table describing one or more trees. When the module contains several trees, pass the desired tree id as the second argument to `Create`.
 
 
 BehaviorTree5 is an implementation of the "behavior tree" paradigm for managing behavior. This allows us to create relatively complex patterns of behavior without much getting "lost in the sauce", so to speak. In *behavior trees*, actions are represented as **tasks**, or "leaves". These tasks are then collected in a container called a **tree**, which we "run" through in order to determine what task should be done at a given point in time.
