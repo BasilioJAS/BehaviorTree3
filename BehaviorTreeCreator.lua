@@ -25,6 +25,42 @@ local BehaviorTree3 = require(script.BehaviorTree5)
 local Trees = {}
 local SourceTasks = {}
 local TreeIDs = {}
+local VALID_MODULE_VALUE_TYPES = {
+	boolean = true,
+	number = true,
+	string = true,
+	Instance = true,
+	table = true,
+}
+
+local function getConfigValue(object)
+	if not object then
+		return nil
+	end
+
+	if object:IsA("ModuleScript") then
+		local ok, result = pcall(require, object)
+		if not ok then
+			warn(string.format("Failed to require value module %s: %s", object:GetFullName(), tostring(result)))
+			return nil
+		end
+		if result == nil then
+			return nil
+		end
+		local resultType = typeof(result)
+		if VALID_MODULE_VALUE_TYPES[resultType] then
+			return result
+		end
+		warn(string.format("Unsupported value type %s returned by module %s", resultType, object:GetFullName()))
+		return nil
+	end
+
+	if object:IsA("ValueBase") then
+		return object.Value
+	end
+
+	return nil
+end
 
 --------------------------------------------
 -------------- PUBLIC METHODS --------------
@@ -70,7 +106,7 @@ local function GetModuleScript(folder)
 	else
 		local link = folder:FindFirstChild("Link")
 		if link then
-			local linked = link.Value
+			local linked = getConfigValue(link)
 			if linked then
 				return GetModuleScript(linked)
 			end
@@ -89,17 +125,36 @@ end
 function TreeCreator:_getExternalSourceTask(folder)
 	local SourcePeram = folder.Parameters:FindFirstChild("Source")
 	if SourcePeram then
-		local Source = SourcePeram.Value
+		local Source = SourcePeram:IsA("ModuleScript") and SourcePeram or getConfigValue(SourcePeram)
 		if Source then
-			return GetModule(Source)
+			-- Source should resolve to a ModuleScript instance or a task table (start/run/finish)
+			local sourceType = typeof(Source)
+			if sourceType == "Instance" then
+				if Source:IsA("ModuleScript") then
+					return GetModule(Source)
+				end
+				warn(string.format("Source instance for %s is not a ModuleScript", SourcePeram:GetFullName()))
+				return nil
+			elseif sourceType == "table" then
+				-- expected format: { run = function, start = function?, finish = function? }
+				-- start/finish are optional; run must exist
+				if typeof(Source.run) == "function" then
+					return Source
+				end
+				warn(string.format("Source table for %s is missing required run function", SourcePeram:GetFullName()))
+				return nil
+			end
+			warn(string.format("Unsupported Source parameter type %s for %s", sourceType, SourcePeram:GetFullName()))
+			return nil
 		end
 	end
 end
 
 
 function TreeCreator:_buildNode(folder)
-	local nodeType = folder.Type.Value
-	local weight = folder:FindFirstChild("Weight") and folder.Weight.Value or 1
+	local nodeType = getConfigValue(folder:FindFirstChild("Type"))
+	assert(nodeType, string.format("couldn't build tree; failed to resolve Type value for node folder %s", folder:GetFullName()))
+	local weight = getConfigValue(folder:FindFirstChild("Weight")) or 1
 
 	-- Get outputs, sorted in index order 
 	local Outputs = folder.Outputs:GetChildren()
@@ -112,14 +167,14 @@ function TreeCreator:_buildNode(folder)
 		return tonumber(a.Name) < tonumber(b.Name)
 	end)
 	for i = 1,#orderedChildren do
-		orderedChildren[i] = self:_buildNode(orderedChildren[i].Value)
+		orderedChildren[i] = self:_buildNode(getConfigValue(orderedChildren[i]))
 	end
 
 	-- Get parameters from parameters folder
 	local parameters = {}
 	for _, value in pairs(folder.Parameters:GetChildren()) do
 		if not (value.Name == "Index") then
-			parameters[string.lower(value.Name)] = value.Value
+			parameters[string.lower(value.Name)] = getConfigValue(value)
 		end
 	end
 
@@ -128,19 +183,19 @@ function TreeCreator:_buildNode(folder)
 	parameters.nodefolder = folder
 	if nodeType == "Task" then
 		local sourcetask = self:_getSourceTask(folder)
-		assert(sourcetask, "could't build tree; task node had no module")
+		assert(sourcetask, "couldn't build tree; task node had no module")
 		parameters.start = sourcetask.start
 		parameters.run = sourcetask.run
 		parameters.finish = sourcetask.finish
 	elseif nodeType == "External Task" then
 		local sourcetask = self:_getExternalSourceTask(folder)
-		assert(sourcetask, "could't build tree; external task node had no source")
+		assert(sourcetask, "couldn't build tree; external task node had no source")
 		parameters.start = sourcetask.start
 		parameters.run = sourcetask.run
 		parameters.finish = sourcetask.finish
 	elseif nodeType == "Tree" then
 		local tree = self:_getTreeFromId(parameters.treeid)
-		assert(tree, string.format("could't build tree; couldn't get tree object for tree node with TreeID:  %s!",tostring(parameters.treeid)))
+		assert(tree, string.format("couldn't build tree; couldn't get tree object for tree node with TreeID:  %s!",tostring(parameters.treeid)))
 		parameters.tree = tree
 	end
 
@@ -159,7 +214,7 @@ function TreeCreator:_createTree(treeFolder)
 	assert(RootFolder, string.format("Could not find Root under BehaviorTrees.Trees.%s.Nodes!",treeFolder.Name))
 	assert(#RootFolder.Outputs:GetChildren() == 1, string.format("The root node does not have exactly one connection for %s!",treeFolder.Name))
 
-	local firstNodeFolder = RootFolder.Outputs:GetChildren()[1].Value
+	local firstNodeFolder = getConfigValue(RootFolder.Outputs:GetChildren()[1])
 	local root = self:_buildNode(firstNodeFolder)
 	local Tree = BehaviorTree3:new({tree=root,treeFolder = treeFolder})
 	Trees[treeFolder] = Tree
